@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+model User {
+  id String @id
+  email String @unique
+  name String
+  password_hash String?
+  seeded Int @default(0)
+  created_at String
+  projects Project[]
+  sessions Session[]
+  @@map("users")
+}
+model Session {
+  id String @id
+  user_id String
+  expires_at BigInt
+  user User @relation(fields:[user_id],references:[id],onDelete:Cascade)
+  @@index([user_id])
+  @@map("sessions")
+}
+model Project {
+  id String @id
+  owner_id String
+  name String
+  description String
+  rules Json @db.JsonB
+  created_at String
+  owner User @relation(fields:[owner_id],references:[id],onDelete:Cascade)
+  environments Environment[]
+  cases RequestCase[]
+  runs ReplayRun[]
+  @@index([owner_id])
+  @@map("projects")
+}
+model Environment {
+  id String @id
+  project_id String
+  name String
+  base_url String
+  headers Json @db.JsonB
+  secret String @default("")
+  kind String
+  project Project @relation(fields:[project_id],references:[id],onDelete:Cascade)
+  baselines Baseline[]
+  recordings Recording[]
+  @@index([project_id])
+  @@map("environments")
+}
+model RequestCase {
+  id String @id
+  project_id String
+  name String
+  method String
+  path String
+  query Json @db.JsonB
+  headers Json @db.JsonB
+  body Json? @db.JsonB
+  timeout_ms Int
+  enabled Int @default(1)
+  created_at String
+  project Project @relation(fields:[project_id],references:[id],onDelete:Cascade)
+  baseline Baseline?
+  recordings Recording[]
+  @@index([project_id])
+  @@map("cases")
+}
+model Baseline {
+  case_id String @id
+  environment_id String
+  snapshot Json @db.JsonB
+  request RequestCase @relation(fields:[case_id],references:[id],onDelete:Cascade)
+  environment Environment @relation(fields:[environment_id],references:[id],onDelete:Cascade)
+  @@map("baselines")
+}
+model Recording {
+  id String @id
+  case_id String
+  environment_id String
+  snapshot Json @db.JsonB
+  created_at String
+  request RequestCase @relation(fields:[case_id],references:[id],onDelete:Cascade)
+  environment Environment @relation(fields:[environment_id],references:[id],onDelete:Cascade)
+  @@index([case_id])
+  @@map("recordings")
+}
+model ReplayRun {
+  id String @id
+  project_id String
+  source_environment_id String
+  target_environment_id String
+  status String
+  total Int
+  passed Int @default(0)
+  warnings Int @default(0)
+  failed Int @default(0)
+  created_at String
+  completed_at String?
+  duration_ms Int @default(0)
+  fixture Int @default(0)
+  input Json @db.JsonB
+  lease_until BigInt @default(0)
+  project Project @relation(fields:[project_id],references:[id],onDelete:Cascade)
+  results ReplayResult[]
+  @@index([project_id,created_at])
+  @@map("runs")
+}
+model ReplayResult {
+  id String @id
+  run_id String
+  case_id String
+  name String
+  method String
+  path String
+  baseline Json? @db.JsonB
+  target Json? @db.JsonB
+  diff Json @db.JsonB
+  severity String
+  error String?
+  run ReplayRun @relation(fields:[run_id],references:[id],onDelete:Cascade)
+  explanation Explanation?
+  @@unique([run_id,case_id])
+  @@index([run_id])
+  @@index([case_id])
+  @@map("results")
+}
+model Explanation {
+  result_id String @id
+  explanation String
+  model String
+  result ReplayResult @relation(fields:[result_id],references:[id],onDelete:Cascade)
+  @@map("explanations")
+}
+model RateLimit {
+  key String @id
+  count Int
+  reset_at BigInt
+  @@map("rate_limits")
+}

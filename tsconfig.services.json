@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.json","compilerOptions":{"noEmit":false,"incremental":false,"module":"CommonJS","moduleResolution":"Node","outDir":"services-dist","target":"ES2022","jsx":"react-jsx","plugins":[]},"include":["apps/api/**/*.ts","apps/worker/**/*.ts","packages/core/**/*.ts"],"exclude":["node_modules"]}

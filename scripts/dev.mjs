@@ -1,0 +1,2 @@
+import { spawn } from 'node:child_process';
+const commands=[['node_modules/tsx/dist/cli.mjs','watch','apps/api/src/server.ts'],['node_modules/tsx/dist/cli.mjs','watch','apps/worker/src/worker.ts'],['node_modules/vite/bin/vite.js','--config','apps/web/vite.config.ts']];const children=commands.map(args=>spawn(process.execPath,args,{stdio:'inherit',env:process.env}));function stop(){children.forEach(c=>c.kill('SIGTERM'))}process.on('SIGTERM',stop);process.on('SIGINT',stop);children.forEach(c=>c.on('exit',code=>{if(code){stop();process.exit(code)}}));

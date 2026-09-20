@@ -1,0 +1,16 @@
+packages:
+  - apps/*
+  - packages/*
+minimumReleaseAge: 10080
+minimumReleaseAgeIgnoreMissingTime: false
+trustLockfile: false
+strictDepBuilds: true
+allowBuilds:
+  "@prisma/client": false
+  "@prisma/engines": false
+  esbuild: true
+  fsevents: true
+  msgpackr-extract: false
+  prisma: false
+enableGlobalVirtualStore: false
+packageImportMethod: clone-or-copy

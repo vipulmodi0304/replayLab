@@ -1,0 +1,7 @@
+node_modules
+dist
+services-dist
+apps/web/dist
+components/ui
+vendor
+pnpm-lock.yaml
