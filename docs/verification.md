@@ -1,46 +1,85 @@
 # Verification
 
-Verified on September 17, 2026 for the standalone Railway source. These are local checks, not a remote CI run or a production audit.
+This document separates checks that have actually run from checks that are still pending.
 
-| Check                                                             | Result                               |
-| ----------------------------------------------------------------- | ------------------------------------ |
-| Frozen dependency installation and supply-chain policy validation | Passed using the local package cache |
-| Prisma client generation                                          | Passed                               |
-| ESLint                                                            | Passed                               |
-| TypeScript                                                        | Passed                               |
-| Deterministic comparison                                          | 31 tests passed                      |
-| API, replay, and Express session authentication                   | 15 tests passed                      |
-| Request security                                                  | 20 tests passed                      |
-| Same-origin frontend hosting                                      | 4 tests passed                       |
-| Express API and worker production compilation                     | Passed                               |
-| React/Vite production build                                       | Passed                               |
+## Automated repository verification
 
-The result is **70 passed, 1 skipped**. Tests use a checked-in SQLite schema fixture and the real Express routes through Supertest. They cover login/logout, ownership, encryption, baseline approval and invalidation, replay outcomes, response limits, and outbound network checks. New hosting checks cover direct frontend links, documentation routing, asset caching, JSON API errors, missing assets, hidden-file protection, and a missing frontend build.
+The current GitHub Actions workflow has completed successfully on the deployed commit.
 
-The runtime used Node 24.19.0 and pnpm 11.19.0. The repository and Dockerfile pin pnpm 11.25.0 for deployment and require Node 22.19 or newer. Existing dependency versions and integrity records were preserved when removing obsolete framework packages. The frontend build reports a bundle-size advisory; route splitting is a future optimization.
+The workflow provisions PostgreSQL and Redis and runs:
 
-## Remaining environment checks
+- dependency installation from the lockfile
+- Prisma client generation
+- database migrations
+- ESLint
+- TypeScript type checking
+- Vitest unit/integration tests
+- production builds for the web app and Node services
 
-- The PostgreSQL/BullMQ integration test was skipped because PostgreSQL and Redis are unavailable locally. Docker is also unavailable, so the container build, Compose startup, production migration, and queue operation have not been executed here. The GitHub Actions workflow provisions PostgreSQL and Redis and runs the integration test.
-- The Playwright login/replay smoke test is included but has not run against this standalone stack. The earlier prototype's demo journey was checked in a browser, but that is not evidence of this deployment working.
-- No Railway application service or public domain has been deployed from this source yet. The Railway project exists; deployment awaits a GitHub repository selected by the owner.
-- No external target API or live AI request was made. AI remains disabled by default.
-- No mobile or accessibility audit was performed. The optional WebMCP integration remains feature-detected.
-- The GitHub Actions workflow has not yet run remotely.
+Local verification performed during the initial build also covered deterministic comparison, authentication, authorization, request safety, baseline approval, replay behavior, and same-origin frontend hosting.
 
-## Reproduce
+## Production deployment
 
-Follow README setup with PostgreSQL and Redis running, then run:
+ReplayLab is deployed on Railway at:
+
+https://web-production-4712.up.railway.app/
+
+Production currently consists of:
+
+- a public web/API service
+- a separate replay worker
+- PostgreSQL
+- Redis
+
+Verified on September 21, 2026:
+
+- all four Railway services were online with successful deployments
+- the web service readiness endpoint returned HTTP 200
+- database migrations completed with no pending migrations
+- registration returned HTTP 201
+- authenticated workspace requests returned HTTP 200
+- unauthenticated workspace requests correctly returned HTTP 401
+- static assets were served successfully
+- no current web or worker crashes were present
+- no current HTTP 5xx responses were observed during the health audit
+- the worker process was running with PostgreSQL and Redis configuration present
+
+## Remaining manual smoke test
+
+Infrastructure health does not by itself prove that a newly queued replay completes end to end.
+
+After each meaningful deployment, perform this browser smoke test:
+
+1. Register or sign in.
+2. Open the built-in Demo Commerce API project.
+3. Run a demo replay.
+4. Wait for the background run to complete.
+5. Open **Get User** and confirm the JSON diff reports the expected breaking changes.
+6. Refresh the browser and confirm the completed run persists.
+7. Confirm **Get Order** shows the configured latency warning.
+8. Confirm **List Products** passes.
+
+Do not mark an end-to-end replay as production-verified until this flow has been completed on the deployed version.
+
+## Reproduce locally
+
+With PostgreSQL and Redis running:
 
 ```sh
+pnpm install --frozen-lockfile
 pnpm db:client
 pnpm db:migrate
 pnpm lint
 pnpm typecheck
-node --env-file=.env node_modules/vitest/vitest.mjs run --config vitest.config.ts
+pnpm test
 pnpm build
 ```
 
-For the browser check, seed the local account, start `pnpm dev`, install Playwright Chromium, and run `node --env-file=.env node_modules/@playwright/test/cli.js test` in another terminal.
+For the browser smoke test:
 
-After deployment, register a fresh account, run the three demo cases, close and reopen the browser, and verify the run completed through the independent worker. Confirm readiness, direct page refreshes, and login/logout on the final HTTPS origin.
+```sh
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
+See the main README for local setup and `docs/railway.md` for deployment configuration.
