@@ -1,6 +1,10 @@
 # ReplayLab
 
+[![ReplayLab checks](https://github.com/vipulmodi0304/replayLab/actions/workflows/ci.yml/badge.svg)](https://github.com/vipulmodi0304/replayLab/actions/workflows/ci.yml)
+
 **Catch API regressions before your users do.**
+
+**Live app:** https://web-production-4712.up.railway.app/
 
 ReplayLab records approved HTTP responses and replays saved requests against another API version. It compares status codes, response structure, field values, headers, and latency using deterministic rules. Think Git diff for API behavior.
 
@@ -8,7 +12,7 @@ A backend change can compile, pass unit tests, and still break a consumer that e
 
 ## Try the demo
 
-Open the app and choose **Try the demo**. Each authenticated account receives an isolated **Demo Commerce API** project with three requests:
+Open the [live app](https://web-production-4712.up.railway.app/) and choose **Try the demo**. Each authenticated account receives an isolated **Demo Commerce API** project with three requests:
 
 | Request       | Candidate behavior                                                | Expected result |
 | ------------- | ----------------------------------------------------------------- | --------------- |
@@ -140,7 +144,7 @@ pnpm exec playwright install chromium
 node --env-file=.env node_modules/@playwright/test/cli.js test
 ```
 
-See [verification](docs/verification.md) for what was actually run during delivery and what still requires local infrastructure. A provided CI workflow is not a claim that a remote GitHub run has passed.
+See [verification](docs/verification.md) for the checks that have actually run and the remaining production smoke test. The GitHub Actions workflow has completed successfully on the deployed commit.
 
 ## API documentation
 
@@ -171,7 +175,7 @@ See [API examples](docs/api.md), [architecture](docs/architecture.md), and [diff
 | `tests`                            | Diff, API, security, queue integration, and browser tests  |
 | `Dockerfile`, `docker-compose.yml` | Web/API and worker images, local infrastructure            |
 | `.github/workflows`                | Install, migration, lint, typecheck, test, and build gates |
-| `docs`                             | Architecture, deployment, verification, interview handoff  |
+| `docs`                             | Architecture, API, deployment, diff engine, and verification |
 
 ## Known limits
 
@@ -183,9 +187,6 @@ See [API examples](docs/api.md), [architecture](docs/architecture.md), and [diff
 - JSON paths deeper than 100 levels produce a warning; extremely large responses are rejected at 2 MB.
 - A crashed API between database commit and queue insertion can leave a queued run stranded. A transactional outbox would close that window.
 
-## Screenshots to add to GitHub
-
-Capture the project overview, Get User side-by-side diff, request editor with an approved baseline, and replay summary showing one pass, one warning, and one breaking result. Use only synthetic demo data. No fabricated screenshots or usage figures are included.
 
 ## Next improvements
 
