@@ -9,7 +9,7 @@ import { resolve, sep } from "node:path";
 import { handleApi, type ApiContext } from "../../../packages/core/api";
 import { demoSnapshot } from "../../../packages/core/demo";
 import { openapi } from "../../../packages/core/openapi";
-import { authRouter, sessionUser } from "./auth";
+import { authRouter, requestUser } from "./auth";
 export function createApp(
   options: Omit<ApiContext, "user" | "runtime"> & {
     production?: boolean;
@@ -107,7 +107,7 @@ export function createApp(
   });
   app.use("/api/v1/auth", authRouter(options.db, options.production));
   app.use("/api/v1", async (req, res) => {
-    const user = await sessionUser(options.db, req);
+    const auth = await requestUser(options.db, req);
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers))
       if (typeof value === "string") headers.set(key, value);
@@ -121,7 +121,8 @@ export function createApp(
     });
     const response = await handleApi(request, {
       ...options,
-      user,
+      user: auth?.user ?? null,
+      authVia: auth?.via,
       runtime: "node",
     });
     res.status(response.status);

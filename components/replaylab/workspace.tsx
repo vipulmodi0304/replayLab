@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   QueryClient,
   QueryClientProvider,
@@ -6,13 +7,10 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
-  Activity,
   ArrowRight,
   BookOpen,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
-  FlaskConical,
   FolderKanban,
   GitBranch,
   GitCompareArrows,
@@ -25,7 +23,6 @@ import {
   Plus,
   Settings2,
   SlidersHorizontal,
-  Workflow,
 } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { api, ApiError } from "@/lib/api-client";
@@ -54,7 +51,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Choice, EmptyState } from "./common";
+import { Brand, Choice, EmptyState, ThemeToggle, useIsDark } from "./common";
+import { AccountPage } from "./account";
 import { Overview } from "./overview";
 import { DiffView } from "./diff-view";
 import { EntityDialog, ConfirmDialog, type Editor } from "./forms";
@@ -78,12 +76,17 @@ export default function Workspace({ segments = [] }: { segments?: string[] }) {
     <QueryClientProvider client={client}>
       <TooltipProvider>
         <WorkspaceInner segments={segments} />
-        <Toaster theme="dark" position="bottom-right" richColors closeButton />
+        <ThemedToaster />
       </TooltipProvider>
     </QueryClientProvider>
   );
 }
+function ThemedToaster() {
+  const dark = useIsDark();
+  return <Toaster theme={dark ? "dark" : "light"} position="bottom-right" richColors closeButton />;
+}
 function WorkspaceInner({ segments }: { segments: string[] }) {
+  const navigate = useNavigate();
   const projectId =
     segments[0] === "projects" && segments[1] !== "new"
       ? segments[1]
@@ -156,11 +159,11 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
         body: { sourceEnvironmentId: sourceId, targetEnvironmentId: targetId },
       });
       toast.success("Replay queued");
-      window.location.assign(
-        `/app/projects/${data.project.id}/replays/${run.id}`,
-      );
+      refresh();
+      navigate(`/app/projects/${data.project.id}/replays/${run.id}`);
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
       setRunning(false);
     }
   }
@@ -220,7 +223,7 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
             if (!id || !/^[0-9a-f-]{36}$/i.test(id))
               throw new Error("Valid projectId required");
             await api(`/projects/${id}`);
-            window.location.assign(`/app/projects/${id}`);
+            navigate(`/app/projects/${id}`);
             return { projectId: id, navigating: true };
           },
         },
@@ -229,7 +232,7 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
     };
     void register().catch(() => {});
     return () => lifecycle.abort();
-  }, []);
+  }, [navigate]);
   const selectedProjectId = data?.project?.id || projectId;
   const base = selectedProjectId
     ? `/app/projects/${selectedProjectId}`
@@ -267,13 +270,13 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
     account: "Your account",
   };
   const descriptions: Record<string, string> = {
-    overview: "A clear view of what changed in your API.",
-    cases: "Reproducible requests. Reliable baselines.",
-    replays: "Every comparison, ready for review.",
+    overview: "What changed in your API since the last approved baseline.",
+    cases: "The saved requests that get replayed against each build.",
+    replays: "Every comparison you've run, newest first.",
     environments: "The API versions you record and replay against.",
-    rules: "Focus on changes that matter to your consumers.",
+    rules: "Decide which differences count, and how much.",
     settings: "Manage this project and its data.",
-    account: "Your workspace identity and access.",
+    account: "Your sign-in, appearance, and API tokens for CI.",
   };
   return (
     <SidebarProvider
@@ -281,31 +284,18 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
     >
       <Sidebar className="app-sidebar">
         <SidebarHeader className="sidebar-brand">
-          <a className="brand" href="/">
-            <span className="brand-mark">
-              <Workflow size={20} />
-            </span>
-            ReplayLab
-          </a>
-          <span className="sidebar-version">v1.0</span>
+          <Brand to="/app" />
+          <span className="sidebar-version">v2</span>
         </SidebarHeader>
         <SidebarContent>
-          <div className="workspace-select">
-            <span className="workspace-avatar">R</span>
-            <div>
-              <strong>Personal workspace</strong>
-              <span>Developer workspace</span>
-            </div>
-            <ChevronDown size={14} />
-          </div>
           <SidebarGroup>
-            <SidebarGroupLabel>PROJECT</SidebarGroupLabel>
+            <SidebarGroupLabel>Project</SidebarGroupLabel>
             <div className="project-selector">
               <FolderKanban size={16} />
               <Choice
                 label="Choose project"
                 value={data?.project?.id || ""}
-                onChange={(id) => window.location.assign(`/app/projects/${id}`)}
+                onChange={(id) => navigate(`/app/projects/${id}`)}
                 options={
                   data?.projects.map((p) => ({ value: p.id, label: p.name })) ||
                   []
@@ -326,9 +316,15 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
             <SidebarMenu>
               {nav.map((n) => (
                 <SidebarMenuItem key={n.key}>
-                  <SidebarMenuButton asChild isActive={section === n.key}>
-                    <a
-                      href={
+                  <SidebarMenuButton
+                    asChild
+                    isActive={
+                      section === n.key ||
+                      (n.key === "replays" && section === "results")
+                    }
+                  >
+                    <Link
+                      to={
                         !selectedProjectId || n.key === "overview"
                           ? base
                           : `${base}/${n.key}`
@@ -339,14 +335,14 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
                       {n.count !== null && (
                         <span className="nav-count">{n.count ?? 0}</span>
                       )}
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
           </SidebarGroup>
           <SidebarGroup className="configuration-group">
-            <SidebarGroupLabel>CONFIGURATION</SidebarGroupLabel>
+            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
             <SidebarMenu>
               {[
                 {
@@ -358,10 +354,10 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
               ].map((n) => (
                 <SidebarMenuItem key={n.key}>
                   <SidebarMenuButton asChild isActive={section === n.key}>
-                    <a href={selectedProjectId ? `${base}/${n.key}` : base}>
+                    <Link to={selectedProjectId ? `${base}/${n.key}` : base}>
                       <n.icon />
                       <span>{n.name}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -369,30 +365,21 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter>
-          <a className="sidebar-docs" href="/docs">
+          <Link className="sidebar-docs" to="/docs">
             <BookOpen size={16} />
             <span>Documentation</span>
             <ArrowRight size={14} />
-          </a>
-          <div className="sidebar-demo">
-            <FlaskConical size={18} />
-            <strong>
-              Your next deploy,
-              <br />
-              with fewer surprises.
-            </strong>
-            <span>Record. Replay. Compare.</span>
-          </div>
-          <a className="user-row" href="/settings">
+          </Link>
+          <Link className="user-row" to="/settings">
             <div className="avatar">
               {data?.user.name.slice(0, 2).toUpperCase() || "RL"}
             </div>
             <div>
-              <strong>{data?.user.name || "Your workspace"}</strong>
-              <span>Personal account</span>
+              <strong>{data?.user.name || "Your account"}</strong>
+              <span>Account and API tokens</span>
             </div>
             <Settings2 size={15} />
-          </a>
+          </Link>
         </SidebarFooter>
       </Sidebar>
       <main className="workspace-main">
@@ -404,17 +391,18 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
             <FolderKanban size={15} />
             <span>{data?.project?.name || "Workspace"}</span>
             {data?.environments.some((e) => e.kind !== "external") && (
-              <span className="sample-tag">DEMO</span>
+              <span className="sample-tag">Demo</span>
             )}
           </div>
           <div>
-            <a href="/docs" aria-label="Help and documentation">
+            <ThemeToggle />
+            <Link to="/docs" aria-label="Help and documentation">
               <CircleHelp size={17} />
-            </a>
+            </Link>
             <span className="topbar-divider" />
-            <div className="topbar-avatar">
+            <Link to="/settings" className="topbar-avatar" aria-label="Your account">
               {data?.user.name.slice(0, 1).toUpperCase() || "R"}
-            </div>
+            </Link>
           </div>
         </header>
         <div className="workspace-content">
@@ -443,9 +431,9 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
                 query.error instanceof ApiError &&
                 query.error.status === 401 ? (
                   <Button asChild>
-                    <a href="/login">
+                    <Link to="/login">
                       Sign in <ArrowRight />
-                    </a>
+                    </Link>
                   </Button>
                 ) : (
                   <Button onClick={() => query.refetch()}>Try again</Button>
@@ -465,16 +453,10 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
             />
           ) : (
             data && (
-              <>
+              <div className="page-enter" key={`${section}/${detailId || ""}`}>
                 {section !== "results" && (
                   <div className="page-header">
                     <div>
-                      <div className="page-eyebrow">
-                        <Activity size={13} />
-                        {section === "overview"
-                          ? "PROJECT OVERVIEW"
-                          : "REPLAYLAB WORKSPACE"}
-                      </div>
                       <h1>{titles[section] || "Workspace"}</h1>
                       <p>{descriptions[section]}</p>
                     </div>
@@ -549,10 +531,10 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
                         }))}
                       />
                     </div>
-                    <a href={`${base}/rules`}>
+                    <Link to={`${base}/rules`}>
                       <SlidersHorizontal size={14} />
                       <span>Comparison rules</span>
-                    </a>
+                    </Link>
                   </div>
                 )}
                 {section === "overview" && (
@@ -668,7 +650,8 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
                               await api(`/projects/${data.project!.id}`, {
                                 method: "DELETE",
                               });
-                              window.location.assign("/app");
+                              await qc.invalidateQueries({ queryKey: ["workspace"] });
+                              navigate("/app");
                             },
                           })
                         }
@@ -679,34 +662,23 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
                   </>
                 )}
                 {section === "account" && (
-                  <section className="panel project-settings">
-                    <h2>{data.user.name}</h2>
-                    <p className="muted">{data.user.email}</p>
-                    <p>Projects are private to your account.</p>
-                    <Button
-                      variant="outline"
-                      onClick={async () => {
-                        await api("/auth/logout", { method: "POST" });
-                        window.location.assign("/login");
-                      }}
-                    >
-                      <LogOut />
-                      Sign out
-                    </Button>
-                  </section>
+                  <AccountPage
+                    user={data.user}
+                    signOut={async () => {
+                      await api("/auth/logout", { method: "POST" });
+                      window.location.assign("/login");
+                    }}
+                    signOutIcon={<LogOut />}
+                  />
                 )}
-              </>
+              </div>
             )
           )}
           <footer className="workspace-footer">
-            <span>
-              <Workflow size={13} />
-              ReplayLab
-            </span>
-            <span>API behavior, in focus.</span>
-            <a href="/docs">
+            <span>ReplayLab v2</span>
+            <Link to="/docs">
               Docs <ArrowRight size={12} />
-            </a>
+            </Link>
           </footer>
         </div>
       </main>
@@ -717,8 +689,7 @@ function WorkspaceInner({ segments }: { segments: string[] }) {
           onClose={() => setEditor(null)}
           onSaved={(id, type) => {
             refresh();
-            if (type === "project" && id)
-              window.location.assign(`/app/projects/${id}`);
+            if (type === "project" && id) navigate(`/app/projects/${id}`);
           }}
         />
       )}

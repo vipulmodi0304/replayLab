@@ -13,15 +13,23 @@ async function stableId(value: string) {
   ).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+// Users already known to be seeded, per database, so we skip the lookup on every request.
+const seededByDb = new WeakMap<Database, Set<string>>();
 export async function ensureDemo(
   db: Database,
   user: { id: string; email: string; name: string },
 ) {
+  let seeded = seededByDb.get(db);
+  if (!seeded) seededByDb.set(db, (seeded = new Set()));
+  if (seeded.has(user.id)) return;
   const exists = await db.get<{ seeded: number }>(
     "SELECT seeded FROM users WHERE id = ?",
     [user.id],
   );
-  if (exists?.seeded) return;
+  if (exists?.seeded) {
+    seeded.add(user.id);
+    return;
+  }
   const id = await stableId(`${user.id}:project`),
     source = await stableId(`${user.id}:v1`),
     target = await stableId(`${user.id}:v2`),
@@ -104,4 +112,5 @@ export async function ensureDemo(
     params: [user.id],
   });
   await db.batch(statements);
+  seeded.add(user.id);
 }

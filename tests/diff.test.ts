@@ -154,3 +154,40 @@ describe("deterministic comparison", () => {
       "ADDED",
     ));
 });
+describe("keyed array matching", () => {
+  const keyed: Partial<Rules> = { arrayMode: "keyed", arrayKey: "id" };
+  const before = { items: [{ id: 1, qty: 2 }, { id: 2, qty: 1 }] };
+  it("ignores reordering when items share a key", () =>
+    expect(compare(before, { items: [{ id: 2, qty: 1 }, { id: 1, qty: 2 }] }, keyed).diff).toEqual([]));
+  it("reports changes against the matching item, not the same position", () =>
+    expect(
+      compare(before, { items: [{ id: 2, qty: 5 }, { id: 1, qty: 2 }] }, keyed).diff.map((d) => [d.path, d.category]),
+    ).toEqual([["items[id=2].qty", "VALUE_CHANGED"]]));
+  it("reports removed and added items by key", () =>
+    expect(
+      compare(before, { items: [{ id: 1, qty: 2 }, { id: 3, qty: 1 }] }, keyed).diff.map((d) => [d.path, d.category]),
+    ).toEqual([
+      ["items[id=2]", "REMOVED"],
+      ["items[id=3]", "ADDED"],
+    ]));
+  it("uses quoted keys for string ids", () =>
+    expect(compare({ a: [{ id: "x", v: 1 }] }, { a: [{ id: "x", v: 2 }] }, keyed).diff[0].path).toBe('a[id="x"].v'));
+  it("falls back to position when an item has no key", () =>
+    expect(
+      compare({ a: [{ id: 1 }, { name: "n" }] }, { a: [{ name: "n" }, { id: 1 }] }, keyed).diff.length,
+    ).toBeGreaterThan(0));
+  it("falls back to position when keys repeat", () =>
+    expect(compare({ a: [{ id: 1, v: 1 }, { id: 1, v: 2 }] }, { a: [{ id: 1, v: 2 }, { id: 1, v: 1 }] }, keyed).diff.length).toBe(2));
+  it("lets wildcard ignore rules match keyed paths", () =>
+    expect(
+      compare(
+        { items: [{ id: 1, updatedAt: "a" }] },
+        { items: [{ id: 1, updatedAt: "b" }] },
+        { ...keyed, ignoredPaths: ["items[*].updatedAt"] },
+      ).diff,
+    ).toEqual([]));
+  it("uses a configurable key field", () =>
+    expect(
+      compare({ a: [{ sku: "A", n: 1 }, { sku: "B", n: 2 }] }, { a: [{ sku: "B", n: 2 }, { sku: "A", n: 1 }] }, { arrayMode: "keyed", arrayKey: "sku" }).diff,
+    ).toEqual([]));
+});

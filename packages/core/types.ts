@@ -26,7 +26,9 @@ export interface Rules {
   latencyPercentageThreshold: number;
   latencyFailureMs: number;
   compareHeaders: boolean;
-  arrayMode: "ordered" | "unordered";
+  /** keyed: arrays of objects are matched by `arrayKey` instead of position. */
+  arrayMode: "ordered" | "unordered" | "keyed";
+  arrayKey: string;
   numericTolerance: number;
   allowAdditionalFields: boolean;
   caseSensitiveStrings: boolean;
@@ -50,6 +52,7 @@ export const defaultRules: Rules = {
   latencyFailureMs: 2000,
   compareHeaders: false,
   arrayMode: "ordered",
+  arrayKey: "id",
   numericTolerance: 0,
   allowAdditionalFields: true,
   caseSensitiveStrings: true,
@@ -120,6 +123,16 @@ export interface ReplayResult {
   diff: DiffEntry[];
   severity: Severity;
   error: string | null;
+  /** Set when someone accepted this candidate response as the new baseline. */
+  acceptedAt: string | null;
+  acceptedBy: string | null;
+}
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
 }
 export interface Workspace {
   user: { id: string; name: string; email: string };

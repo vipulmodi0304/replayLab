@@ -102,6 +102,8 @@ export async function processNext(
         diff: [],
         severity: "critical",
         error: null,
+        acceptedAt: null,
+        acceptedBy: null,
       };
       try {
         const secret = await decryptSecret(
@@ -181,6 +183,24 @@ export async function processNext(
     );
     throw error;
   }
+}
+/**
+ * Runs are saved before they're queued, so a crash between the two leaves a
+ * run "queued" with no job. The worker calls this on start and periodically;
+ * re-adding an existing job id is a no-op in BullMQ, so this is safe to repeat.
+ */
+export async function requeueStranded(
+  db: Database,
+  enqueue: (runId: string) => Promise<void>,
+  olderThanMs = 120000,
+) {
+  const cutoff = new Date(Date.now() - olderThanMs).toISOString();
+  const rows = await db.all<{ id: string }>(
+    "SELECT id FROM runs WHERE status = ? AND lease_until = 0 AND created_at < ? AND fixture = 0 ORDER BY created_at LIMIT 50",
+    ["queued", cutoff],
+  );
+  for (const row of rows) await enqueue(row.id);
+  return rows.length;
 }
 export async function processRun(
   db: Database,

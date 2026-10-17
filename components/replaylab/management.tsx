@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Copy,
   Edit3,
@@ -14,9 +15,11 @@ import {
   ChevronRight,
   ArrowUpRight,
   LoaderCircle,
+  Check,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api-client";
+import { api, apiText } from "@/lib/api-client";
 import type {
   Workspace,
   RequestCase,
@@ -59,6 +62,7 @@ export type ConfirmState = {
   description: string;
   action: () => Promise<void>;
   destructive?: boolean;
+  confirmLabel?: string;
 };
 export function CasesPage({
   data,
@@ -104,23 +108,23 @@ export function CasesPage({
         />
       </div>
       <section className="panel">
-        <Table>
+        <Table className="stack">
           <TableHeader>
             <TableRow>
               <TableHead>Request</TableHead>
               <TableHead>Endpoint</TableHead>
               <TableHead>Baseline</TableHead>
-              <TableHead>Included</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead>In replays</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {cases.map((c) => (
-              <TableRow key={c.id}>
-                <TableCell>
-                  <a className="text-link" href={`${base}/cases/${c.id}`}>
+          <TableBody className="stagger">
+            {cases.map((c, i) => (
+              <TableRow key={c.id} style={{ "--i": i } as React.CSSProperties}>
+                <TableCell className="cell-primary">
+                  <Link className="text-link" to={`${base}/cases/${c.id}`}>
                     {c.name}
-                  </a>
+                  </Link>
                 </TableCell>
                 <TableCell>
                   <div className="endpoint-cell">
@@ -128,7 +132,7 @@ export function CasesPage({
                     <code>{c.path}</code>
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell data-label="Baseline">
                   {c.baseline ? (
                     <span className="baseline-label">
                       <ShieldCheck size={14} />
@@ -138,12 +142,12 @@ export function CasesPage({
                     <span className="muted">Not recorded</span>
                   )}
                 </TableCell>
-                <TableCell>
+                <TableCell data-label="In replays">
                   <span className="muted">
-                    {c.enabled ? "Enabled" : "Disabled"}
+                    {c.enabled ? "Included" : "Skipped"}
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell className="cell-end">
                   <div className="row-actions">
                     <Button
                       variant="ghost"
@@ -242,7 +246,7 @@ export function EnvironmentsPage({
                 <Globe size={22} />
               </span>
               <span className="sample-tag">
-                {e.kind === "external" ? "CUSTOM API" : "BUILT-IN DEMO"}
+                {e.kind === "external" ? "Your API" : "Built-in demo"}
               </span>
               <Button
                 variant="ghost"
@@ -508,8 +512,8 @@ export function RulesPage({
           <p>
             Exclude values that change on every request.
             <br />
-            One path per line. Wildcards such as items[*].updatedAt are
-            supported.
+            One path per line. Wildcards such as <code>items[*].updatedAt</code>{" "}
+            are supported.
           </p>
         </div>
         <div className="field">
@@ -583,11 +587,31 @@ export function RulesPage({
               onChange={(v) => set("arrayMode", v as Rules["arrayMode"])}
               label="Array comparison"
               options={[
-                { value: "ordered", label: "Ordered" },
-                { value: "unordered", label: "Unordered primitives" },
+                { value: "ordered", label: "By position" },
+                { value: "unordered", label: "Ignore order of plain values" },
+                { value: "keyed", label: "Match objects by a key field" },
               ]}
             />
+            <p>
+              {values.arrayMode === "keyed"
+                ? "Items are matched by the field below, so reordering a list isn't a change. Falls back to position when an item has no key."
+                : values.arrayMode === "unordered"
+                  ? "Lists of strings or numbers can come back in any order."
+                  : "Item 0 is compared with item 0, item 1 with item 1, and so on."}
+            </p>
           </div>
+          {values.arrayMode === "keyed" && (
+            <div className="field">
+              <Label htmlFor="array-key">Key field</Label>
+              <Input
+                id="array-key"
+                className="mono"
+                value={values.arrayKey ?? "id"}
+                onChange={(e) => set("arrayKey", e.target.value)}
+                placeholder="id"
+              />
+            </div>
+          )}
           <div className="field">
             <Label htmlFor="tolerance">Numeric tolerance</Label>
             <Input
@@ -641,7 +665,7 @@ export function HistoryPage({
       )}
       <div className="pagination">
         <span>
-          {data.totalRuns} runs · Page {page}
+          {data.totalRuns} {data.totalRuns === 1 ? "run" : "runs"}, page {page}
         </span>
         <div>
           <Button
@@ -667,7 +691,9 @@ export function HistoryPage({
     </section>
   );
 }
+const rank = { pass: 0, info: 1, warning: 2, breaking: 3, critical: 4 };
 export function RunPage({ id, data }: { id: string; data: Workspace }) {
+  const [copied, setCopied] = useState(false);
   const q = useQuery({
     queryKey: ["run", id],
     queryFn: () =>
@@ -685,12 +711,23 @@ export function RunPage({ id, data }: { id: string; data: Workspace }) {
       <Busy text="Loading replay" />
     );
   const { run, results } = q.data;
-  const done = run.passed + run.warnings + run.failed;
+  const done = results.length;
+  const live = ["queued", "running"].includes(run.status);
+  async function copyReport() {
+    try {
+      const markdown = await apiText(`/replays/${run.id}/report`);
+      await navigator.clipboard.writeText(markdown);
+      setCopied(true);
+      toast.success("Report copied. Paste it into a pull request comment.");
+    } catch (e) {
+      toast.error((e as Error).message || "Couldn't copy the report.");
+    }
+  }
   return (
     <>
-      <div className="run-overview panel">
+      <div className={`run-overview panel${live ? " live" : ""}`}>
         <div>
-          <span className="section-kicker">REPLAY #{run.id.slice(0, 7)}</span>
+          <span className="section-kicker">Replay #{run.id.slice(0, 7)}</span>
           <h2>
             {run.status === "completed"
               ? "Replay complete"
@@ -701,9 +738,9 @@ export function RunPage({ id, data }: { id: string; data: Workspace }) {
                   : "Replay needs attention"}
           </h2>
           <p>
-            {done} of {run.total} requests compared ·{" "}
+            {done} of {run.total} requests compared, started{" "}
             <RelativeDate date={run.createdAt} />
-            {run.fixture ? " · Seeded sample" : ""}
+            {run.fixture ? ". Built-in sample run." : ""}
           </p>
         </div>
         <div className="run-outcomes">
@@ -725,9 +762,17 @@ export function RunPage({ id, data }: { id: string; data: Workspace }) {
       <section className="panel">
         <SectionHeading
           title="Request results"
-          meta="Open a request to inspect its response comparison."
+          meta="Open a request to review its diff and accept or keep the baseline."
+          action={
+            !live && results.length ? (
+              <Button variant="outline" size="sm" onClick={copyReport}>
+                {copied ? <Check /> : <FileText />}
+                Copy Markdown report
+              </Button>
+            ) : undefined
+          }
         />
-        <Table>
+        <Table className="stack">
           <TableHeader>
             <TableRow>
               <TableHead>Request</TableHead>
@@ -738,41 +783,44 @@ export function RunPage({ id, data }: { id: string; data: Workspace }) {
               <TableHead />
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {results.map((r) => (
-              <TableRow key={r.id}>
-                <TableCell>
-                  <a
+          <TableBody className="stagger">
+            {[...results]
+              .sort((a, b) => rank[b.severity] - rank[a.severity] || a.name.localeCompare(b.name))
+              .map((r, i) => (
+              <TableRow key={r.id} style={{ "--i": i } as React.CSSProperties}>
+                <TableCell className="cell-primary">
+                  <Link
                     className="text-link"
-                    href={`/app/projects/${data.project?.id}/results/${r.id}`}
+                    to={`/app/projects/${data.project?.id}/results/${r.id}`}
                   >
                     {r.name}
-                  </a>
+                  </Link>
                   <div className="endpoint-cell">
                     <Method method={r.method} />
                     <code>{r.path}</code>
                   </div>
                 </TableCell>
-                <TableCell>
+                <TableCell data-label="Result">
                   <SeverityBadge severity={r.severity} />
+                  {r.acceptedAt && <span className="sample-tag" style={{ marginLeft: 6 }}>Accepted</span>}
                 </TableCell>
-                <TableCell className="mono">
-                  {r.baseline?.latencyMs} ms
+                <TableCell className="mono" data-label="Baseline">
+                  {r.baseline?.latencyMs ?? "–"} ms
                 </TableCell>
-                <TableCell className="mono">
-                  {r.target?.latencyMs ?? "—"} ms
+                <TableCell className="mono" data-label="Candidate">
+                  {r.target?.latencyMs ?? "–"} ms
                 </TableCell>
-                <TableCell>
+                <TableCell data-label="Differences">
                   {r.error ||
                     `${r.diff.length} ${r.diff.length === 1 ? "change" : "changes"}`}
                 </TableCell>
-                <TableCell>
-                  <a
+                <TableCell className="cell-end">
+                  <Link
                     aria-label={`Inspect ${r.name}`}
-                    href={`/app/projects/${data.project?.id}/results/${r.id}`}
+                    to={`/app/projects/${data.project?.id}/results/${r.id}`}
                   >
                     <ArrowUpRight size={16} />
-                  </a>
+                  </Link>
                 </TableCell>
               </TableRow>
             ))}

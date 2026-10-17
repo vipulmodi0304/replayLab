@@ -21,6 +21,25 @@ function pathKey(parent: string, key: string): string {
     ? `${parent ? parent + "." : ""}${key}`
     : `${parent}[${JSON.stringify(key)}]`;
 }
+/**
+ * Index an array of objects by one field, e.g. [{id: 7}, {id: 9}] by "id".
+ * Returns null when any item is not an object, lacks the field, holds a
+ * non-primitive there, or repeats a value, so the caller can fall back.
+ */
+export function keyedItems(items: Json[], field: string) {
+  const map = new Map<string, Json>();
+  for (const item of items) {
+    if (item === null || typeof item !== "object" || Array.isArray(item))
+      return null;
+    const value = (item as Record<string, Json>)[field];
+    if (value === undefined || (value !== null && typeof value === "object"))
+      return null;
+    const key = JSON.stringify(value);
+    if (map.has(key)) return null;
+    map.set(key, item);
+  }
+  return map;
+}
 export function pathMatches(path: string, pattern: string): boolean {
   const regex = pattern
     .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
@@ -100,6 +119,21 @@ export function compareResponses(
       return;
     }
     if (Array.isArray(a) && Array.isArray(b)) {
+      if (rules.arrayMode === "keyed") {
+        const left = keyedItems(a, rules.arrayKey),
+          right = keyedItems(b, rules.arrayKey);
+        // Only when every item on both sides has a unique key; otherwise fall back to position.
+        if (left && right) {
+          for (const key of new Set([...left.keys(), ...right.keys()]))
+            visit(
+              `${path}[${rules.arrayKey}=${key}]`,
+              left.get(key),
+              right.get(key),
+              depth + 1,
+            );
+          return;
+        }
+      }
       let left = a,
         right = b;
       if (

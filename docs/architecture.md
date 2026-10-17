@@ -28,6 +28,6 @@ Tokens are encrypted at rest with AES-GCM and a fresh nonce. Responses omit sens
 
 ## Operational tradeoffs
 
-Database writes and queue insertion are not a single distributed transaction. An enqueue error is marked failed; an API crash in the commit/enqueue gap needs future outbox reconciliation. Run input snapshots increase storage but preserve reproducibility. The JSON diff output is not a proof of semantic compatibility. For example, a new enum value may break a consumer even though it is classified as a warning.
+Database writes and queue insertion are not a single distributed transaction. An enqueue error is marked failed; a run left queued by an API crash in the commit/enqueue gap is re-queued by the worker's periodic sweep, and an outbox would remove the gap. Run input snapshots increase storage but preserve reproducibility. The JSON diff output is not a proof of semantic compatibility. For example, a new enum value may break a consumer even though it is classified as a warning.
 
 Scale by adding workers carefully, enforcing per-target rate budgets, implementing retention, and adopting an outbox before adding organizational complexity. This implementation intentionally omits billing, organizations, Kubernetes, and unrelated AI chat.

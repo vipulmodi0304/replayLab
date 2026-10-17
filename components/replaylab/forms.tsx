@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { LoaderCircle } from "lucide-react";
+import { LoaderCircle, TerminalSquare } from "lucide-react";
+import { parseCurl } from "@/packages/core/curl";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -51,7 +52,7 @@ export function EntityDialog({
   const env = editor.type === "environment" ? editor.value : undefined;
   const req = editor.type === "case" ? editor.value : undefined;
   const project = editor.type === "project" ? editor.value : undefined;
-  const { register, handleSubmit } = useForm({
+  const { register, handleSubmit, setValue } = useForm({
     defaultValues: {
       name: value?.name || "",
       description: project?.description || "",
@@ -59,7 +60,7 @@ export function EntityDialog({
       path: req?.path || "/users/42",
       query: JSON.stringify(req?.query || {}, null, 2),
       headers: JSON.stringify(req?.headers || env?.headers || {}, null, 2),
-      body: JSON.stringify(req?.body || null, null, 2),
+      body: JSON.stringify(req?.body ?? null, null, 2),
       timeoutMs: req?.timeoutMs || 10000,
       secret: "",
     },
@@ -68,7 +69,34 @@ export function EntityDialog({
     [kind, setKind] = useState(env?.kind || "external"),
     [enabled, setEnabled] = useState(req?.enabled ?? true),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [curlOpen, setCurlOpen] = useState(false),
+    [curl, setCurl] = useState(""),
+    [curlNotes, setCurlNotes] = useState<string[]>([]);
+  function importCurl() {
+    try {
+      const parsed = parseCurl(curl);
+      setMethod(parsed.method);
+      setValue("path", parsed.path);
+      setValue("query", JSON.stringify(parsed.query, null, 2));
+      setValue("headers", JSON.stringify(parsed.headers, null, 2));
+      setValue("body", JSON.stringify(parsed.body, null, 2));
+      if (!req) {
+        const last = parsed.path.split("/").filter(Boolean).slice(-2).join(" ");
+        setValue("name", `${parsed.method} ${last || "root"}`.slice(0, 100));
+      }
+      setCurlNotes([
+        `Base URL ${parsed.baseUrl}. Replays use each environment's base URL, so make sure an environment points there.`,
+        ...(parsed.secret ? ["An Authorization credential was found. Put it in the environment's token field, where it's stored encrypted."] : []),
+        ...parsed.warnings,
+      ]);
+      setError("");
+      setCurlOpen(false);
+    } catch (e) {
+      setCurlNotes([]);
+      setError((e as Error).message);
+    }
+  }
   const submit = handleSubmit(async (values) => {
     setBusy(true);
     setError("");
@@ -168,8 +196,8 @@ export function EntityDialog({
                   onChange={(v) => setKind(v as Environment["kind"])}
                   options={[
                     { value: "external", label: "External API" },
-                    { value: "demo-v1", label: "Built-in demo · v1" },
-                    { value: "demo-v2", label: "Built-in demo · v2" },
+                    { value: "demo-v1", label: "Built-in demo, v1" },
+                    { value: "demo-v2", label: "Built-in demo, v2" },
                   ]}
                 />
               </div>
@@ -179,8 +207,8 @@ export function EntityDialog({
               </div>
               <div className="field">
                 <Label htmlFor="secret">
-                  Authorization header{" "}
-                  {env?.secretConfigured ? "· saved value is encrypted" : ""}
+                  Authorization header
+                  {env?.secretConfigured ? " (a value is saved and encrypted)" : ""}
                 </Label>
                 <Input
                   id="secret"
@@ -201,6 +229,46 @@ export function EntityDialog({
           )}
           {editor.type === "case" && (
             <>
+              {curlOpen ? (
+                <div className="curl-import">
+                  <Label htmlFor="curl">Paste a cURL command</Label>
+                  <Textarea
+                    id="curl"
+                    rows={4}
+                    value={curl}
+                    onChange={(e) => setCurl(e.target.value)}
+                    placeholder={`curl https://api.example.com/users/42 -H "Accept: application/json"`}
+                    autoFocus
+                  />
+                  <div>
+                    <span className="muted" style={{ fontSize: 12.5 }}>
+                      Copy one from your terminal or the browser's Network tab.
+                    </span>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => setCurlOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="button" size="sm" onClick={importCurl} disabled={!curl.trim()}>
+                        Fill the form
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="curl-toggle" onClick={() => setCurlOpen(true)}>
+                  <TerminalSquare size={15} />
+                  Import from cURL
+                </button>
+              )}
+              {curlNotes.length > 0 && (
+                <div className="info-box" role="status">
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {curlNotes.map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="field">
                 <Label htmlFor="request-path">Request</Label>
                 <div className="method-path">
@@ -216,7 +284,7 @@ export function EntityDialog({
                 </div>
               </div>
               <div className="field">
-                <Label htmlFor="query">Query parameters · JSON</Label>
+                <Label htmlFor="query">Query parameters (JSON)</Label>
                 <Textarea
                   id="query"
                   className="mono"
@@ -225,7 +293,7 @@ export function EntityDialog({
                 />
               </div>
               <div className="field">
-                <Label htmlFor="body">Request body · JSON</Label>
+                <Label htmlFor="body">Request body (JSON)</Label>
                 <Textarea
                   id="body"
                   className="mono"
@@ -237,7 +305,7 @@ export function EntityDialog({
           )}
           {editor.type !== "project" && (
             <div className="field">
-              <Label htmlFor="headers">Headers · JSON</Label>
+              <Label htmlFor="headers">Headers (JSON)</Label>
               <Textarea
                 id="headers"
                 className="mono"
@@ -293,12 +361,14 @@ export function ConfirmDialog({
   action,
   onClose,
   destructive = true,
+  confirmLabel,
 }: {
   title: string;
   description: string;
   action: () => Promise<void>;
   onClose: () => void;
   destructive?: boolean;
+  confirmLabel?: string;
 }) {
   const [busy, setBusy] = useState(false);
   return (
@@ -326,7 +396,7 @@ export function ConfirmDialog({
               }
             }}
           >
-            {busy ? "Working…" : destructive ? "Delete" : "Approve baseline"}
+            {busy ? "Working…" : confirmLabel || (destructive ? "Delete" : "Approve baseline")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

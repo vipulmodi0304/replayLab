@@ -24,3 +24,18 @@ export async function api<T>(
     );
   return data as T;
 }
+/** For endpoints that return text, such as the Markdown run report. */
+export async function apiText(path: string): Promise<string> {
+  const response = await fetch(`/api/v1${path}`, { credentials: "same-origin" });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = "The request could not be completed.";
+    try {
+      message = (JSON.parse(text) as { error?: { message?: string } }).error?.message || message;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(message, response.status);
+  }
+  return text;
+}

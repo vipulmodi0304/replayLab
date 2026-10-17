@@ -15,10 +15,14 @@ import { executeRequest, targetUrl, type HttpTransport } from "./http";
 import { decryptSecret, encryptSecret } from "./secrets";
 import { createReplay } from "./replay";
 import type { AiProvider } from "./ai";
-import type { Snapshot, Workspace } from "./types";
+import type { ApiToken, ReplayResult, Snapshot, Workspace } from "./types";
+import { createApiToken } from "./tokens";
+import { runReport } from "./report";
 export interface ApiContext {
   db: Database;
   user: { id: string; name: string; email: string } | null;
+  /** How the request authenticated. API tokens can't manage tokens. */
+  authVia?: "session" | "token";
   transport: HttpTransport;
   runtime: "node";
   encryptionKey?: string;
@@ -106,6 +110,61 @@ export async function handleApi(
       repo = new Repository(ctx.db, user.id);
     await ensureDemo(ctx.db, user);
     if (parts[0] === "auth" && parts[1] === "me") return reply({ user });
+    if (parts[0] === "tokens") {
+      if (ctx.authVia === "token")
+        throw new AppError(
+          "FORBIDDEN",
+          "API tokens can't manage tokens. Sign in to the app instead.",
+          403,
+        );
+      if (!parts[1] && method === "GET") {
+        const rows = await ctx.db.all<Record<string, unknown>>(
+          "SELECT id,name,prefix,created_at,last_used_at FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC",
+          [user.id],
+        );
+        return reply({
+          tokens: rows.map(
+            (r): ApiToken => ({
+              id: String(r.id),
+              name: String(r.name),
+              prefix: String(r.prefix),
+              createdAt: String(r.created_at),
+              lastUsedAt: r.last_used_at ? String(r.last_used_at) : null,
+            }),
+          ),
+        });
+      }
+      if (!parts[1] && method === "POST") {
+        const body = (await readBody(request)) as { name?: unknown };
+        const name = typeof body.name === "string" ? body.name.trim() : "";
+        if (name.length < 2 || name.length > 60)
+          throw new AppError("VALIDATION_ERROR", "Name the token in 2 to 60 characters, for example GitHub Actions.");
+        const count = await ctx.db.get<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM api_tokens WHERE user_id = ?",
+          [user.id],
+        );
+        if (Number(count?.count || 0) >= 10)
+          throw new AppError("TOO_MANY_TOKENS", "You can have up to 10 tokens. Revoke one you no longer use.");
+        const created = await createApiToken();
+        const tid = crypto.randomUUID(),
+          now = new Date().toISOString();
+        await ctx.db.run(
+          "INSERT INTO api_tokens (id,user_id,name,token_hash,prefix,created_at) VALUES (?,?,?,?,?,?)",
+          [tid, user.id, name, created.hash, created.prefix, now],
+        );
+        return reply(
+          { token: created.token, id: tid, name, prefix: created.prefix, createdAt: now, lastUsedAt: null },
+          201,
+        );
+      }
+      if (parts[1] && method === "DELETE") {
+        await ctx.db.run("DELETE FROM api_tokens WHERE id = ? AND user_id = ?", [
+          idSchema.parse(parts[1]),
+          user.id,
+        ]);
+        return reply({ deleted: true });
+      }
+    }
     if (parts[0] === "workspace") {
       const projects = await repo.projects();
       const selected = url.searchParams.get("projectId");
@@ -406,7 +465,32 @@ export async function handleApi(
     }
     if (resource === "replays" && id) {
       await repo.run(id);
-      if (method === "GET")
+      if (action === "report" && method === "GET") {
+        const run = await repo.run(id);
+        const envName = async (eid: string) =>
+          (
+            await ctx.db.get<{ name: string }>(
+              "SELECT name FROM environments WHERE id = ?",
+              [eid],
+            )
+          )?.name || "deleted environment";
+        const markdown = runReport({
+          run,
+          results: await repo.results(id),
+          sourceName: await envName(run.sourceEnvironmentId),
+          targetName: await envName(run.targetEnvironmentId),
+          url: `${url.origin}/app/projects/${run.projectId}/replays/${run.id}`,
+        });
+        status = 200;
+        return new Response(markdown, {
+          headers: {
+            "Content-Type": "text/markdown; charset=utf-8",
+            "X-Request-ID": requestId,
+            "Cache-Control": "no-store",
+          },
+        });
+      }
+      if (!action && method === "GET")
         return reply({
           run: await repo.run(id),
           results: await repo.results(id),
@@ -414,7 +498,9 @@ export async function handleApi(
     }
     if (resource === "results" && id) {
       const result = await repo.result(id);
-      if (method === "GET") return reply(result);
+      if (!action && method === "GET") return reply(result);
+      if (action === "accept" && method === "POST")
+        return reply(await acceptResult(ctx.db, repo, result, user.name));
       if (action === "explain" && method === "POST") {
         await rateLimit(ctx.db, `${user.id}:ai`, 5);
         if (!ctx.ai)
@@ -486,4 +572,57 @@ export async function handleApi(
       }),
     );
   }
+}
+
+/**
+ * Promote a result's candidate response to the case's baseline, like updating
+ * a snapshot after reviewing it. The baseline stays tied to the run's source
+ * environment, so the next replay compares against what was just accepted.
+ */
+async function acceptResult(
+  db: Database,
+  repo: Repository,
+  result: ReplayResult,
+  acceptedBy: string,
+) {
+  if (!result.target)
+    throw new AppError(
+      "NOTHING_TO_ACCEPT",
+      "This request didn't get a response, so there's nothing to accept.",
+      409,
+    );
+  const run = await repo.run(result.runId);
+  const current = await repo.case(result.caseId);
+  const input = await db.get<{ input: unknown }>(
+    "SELECT input FROM runs WHERE id = ?",
+    [run.id],
+  );
+  const sent = (decode<{ cases?: { id: string; method: string; path: string; query: unknown; headers: unknown; body: unknown }[] }>(input?.input).cases || []).find(
+    (c) => c.id === result.caseId,
+  );
+  if (
+    sent &&
+    (sent.method !== current.method ||
+      sent.path !== current.path ||
+      json(sent.query) !== json(current.query) ||
+      json(sent.headers) !== json(current.headers) ||
+      json(sent.body) !== json(current.body))
+  )
+    throw new AppError(
+      "CASE_CHANGED",
+      "This request was edited after the run. Run the replay again before accepting.",
+      409,
+    );
+  const now = new Date().toISOString();
+  await db.batch([
+    {
+      sql: "INSERT INTO baselines (case_id,environment_id,snapshot) VALUES (?,?,json(?)) ON CONFLICT(case_id) DO UPDATE SET environment_id = excluded.environment_id, snapshot = excluded.snapshot",
+      params: [result.caseId, run.sourceEnvironmentId, json(result.target)],
+    },
+    {
+      sql: "UPDATE results SET accepted_at = ?, accepted_by = ? WHERE id = ?",
+      params: [now, acceptedBy, result.id],
+    },
+  ]);
+  return { result: await repo.result(result.id), case: await repo.case(result.caseId) };
 }

@@ -71,7 +71,14 @@ export const rulesSchema = z
     latencyPercentageThreshold: z.number().min(0).max(10000),
     latencyFailureMs: z.number().min(1).max(120000),
     compareHeaders: z.boolean(),
-    arrayMode: z.enum(["ordered", "unordered"]),
+    arrayMode: z.enum(["ordered", "unordered", "keyed"]),
+    arrayKey: z
+      .string()
+      .trim()
+      .min(1)
+      .max(60)
+      .regex(/^[A-Za-z_$][\w$-]*$/, "Use a plain field name such as id")
+      .default("id"),
     numericTolerance: z.number().min(0).max(1e10),
     allowAdditionalFields: z.boolean(),
     caseSensitiveStrings: z.boolean(),

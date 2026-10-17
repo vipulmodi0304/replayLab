@@ -81,6 +81,8 @@ CREATE TABLE `results` (
 	`diff` text NOT NULL,
 	`severity` text NOT NULL,
 	`error` text,
+	`accepted_at` text,
+	`accepted_by` text,
 	FOREIGN KEY (`run_id`) REFERENCES `runs`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
@@ -125,3 +127,14 @@ CREATE TABLE `users` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `users_email` ON `users` (`email`);
+--> statement-breakpoint
+CREATE TABLE `api_tokens` (
+	`id` text PRIMARY KEY NOT NULL,
+	`user_id` text NOT NULL,
+	`name` text NOT NULL,
+	`token_hash` text NOT NULL UNIQUE,
+	`prefix` text NOT NULL,
+	`created_at` text NOT NULL,
+	`last_used_at` text,
+	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
+);

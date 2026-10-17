@@ -61,7 +61,11 @@ const routes: [string, string[], string][] = [
   ["/cases/{caseId}/send", ["post"], "Send and record a response"],
   ["/cases/{caseId}/baseline", ["post"], "Approve recorded response"],
   ["/replays/{runId}", ["get"], "Replay status and results"],
+  ["/replays/{runId}/report", ["get"], "Markdown summary of a run, for pull requests"],
   ["/results/{resultId}", ["get"], "Structured result"],
+  ["/results/{resultId}/accept", ["post"], "Accept the candidate response as the new baseline"],
+  ["/tokens", ["get", "post"], "List or create API tokens (session only)"],
+  ["/tokens/{tokenId}", ["delete"], "Revoke an API token (session only)"],
   ["/results/{resultId}/explain", ["post"], "Optional AI explanation"],
 ];
 const paths: Record<string, unknown> = {};
@@ -81,7 +85,9 @@ for (const [path, methods, summary] of routes) {
         responses: {
           200: {
             description: "Successful response",
-            content: { "application/json": { schema: { type: "object" } } },
+            content: path.endsWith("/report")
+              ? { "text/markdown": { schema: { type: "string" } } }
+              : { "application/json": { schema: { type: "object" } } },
           },
           400: {
             description: "Invalid request",
@@ -137,7 +143,13 @@ for (const [path, methods, summary] of routes) {
                                   replace: { type: "boolean" },
                                 },
                               }
-                            : path.endsWith("/send")
+                            : path === "/tokens"
+                              ? {
+                                  type: "object",
+                                  required: ["name"],
+                                  properties: { name: { type: "string", minLength: 2, maxLength: 60 } },
+                                }
+                              : path.endsWith("/send")
                               ? {
                                   type: "object",
                                   required: ["environmentId"],
@@ -162,15 +174,16 @@ export const openapi = {
   openapi: "3.0.3",
   info: {
     title: "ReplayLab API",
-    version: "1.0.0",
+    version: "2.0.0",
     description:
-      "Owner-scoped API regression testing with HttpOnly session cookies. Mutation requests must be same-origin.",
+      "Owner-scoped API regression testing. Authenticate with the HttpOnly session cookie, or with an API token as `Authorization: Bearer rl_...` for CI. Browser writes must be same-origin.",
   },
   servers: [{ url: "/api/v1" }],
-  security: [{ session: [] }],
+  security: [{ session: [] }, { token: [] }],
   components: {
     securitySchemes: {
       session: { type: "apiKey", in: "cookie", name: "replaylab_session" },
+      token: { type: "http", scheme: "bearer", description: "An API token created in your account settings" },
     },
     schemas: {
       RequestCase: requestCase,

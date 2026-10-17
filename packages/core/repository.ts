@@ -84,6 +84,8 @@ export function resultDto(r: Row): ReplayResult {
     diff: decode(r.diff),
     severity: r.severity as ReplayResult["severity"],
     error: r.error ? str(r.error) : null,
+    acceptedAt: r.accepted_at ? str(r.accepted_at) : null,
+    acceptedBy: r.accepted_by ? str(r.accepted_by) : null,
   };
 }
 export class Repository {

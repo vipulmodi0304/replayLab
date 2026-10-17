@@ -8,6 +8,7 @@ import {
   Layers,
   TriangleAlert,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   Table,
   TableBody,
@@ -28,7 +29,7 @@ import {
 } from "./common";
 export function RunTable({ runs, base }: { runs: ReplayRun[]; base: string }) {
   return (
-    <Table>
+    <Table className="stack">
       <TableHeader>
         <TableRow>
           <TableHead>Run</TableHead>
@@ -39,20 +40,20 @@ export function RunTable({ runs, base }: { runs: ReplayRun[]; base: string }) {
           <TableHead />
         </TableRow>
       </TableHeader>
-      <TableBody>
-        {runs.map((r) => (
-          <TableRow key={r.id}>
-            <TableCell>
-              <a className="run-link" href={`${base}/replays/${r.id}`}>
+      <TableBody className="stagger">
+        {runs.map((r, i) => (
+          <TableRow key={r.id} style={{ "--i": i } as React.CSSProperties}>
+            <TableCell className="cell-primary">
+              <Link className="run-link" to={`${base}/replays/${r.id}`}>
                 <GitCompareArrows size={15} />
                 <span>#{r.id.slice(0, 7)}</span>
-                {r.fixture && <span className="sample-tag">SAMPLE</span>}
-              </a>
+                {r.fixture && <span className="sample-tag">Sample</span>}
+              </Link>
             </TableCell>
-            <TableCell>
+            <TableCell data-label="Started">
               <RelativeDate date={r.createdAt} />
             </TableCell>
-            <TableCell>
+            <TableCell data-label="Results">
               <div className="result-counts">
                 <span className="green">
                   <CheckCircle2 size={13} />
@@ -68,22 +69,22 @@ export function RunTable({ runs, base }: { runs: ReplayRun[]; base: string }) {
                 </span>
               </div>
             </TableCell>
-            <TableCell className="mono muted">
-              {r.durationMs ? (r.durationMs / 1000).toFixed(2) + "s" : "—"}
+            <TableCell className="mono muted" data-label="Duration">
+              {r.durationMs ? (r.durationMs / 1000).toFixed(2) + "s" : "–"}
             </TableCell>
-            <TableCell>
+            <TableCell data-label="Status">
               <span className={`run-status ${r.status}`}>
                 <span className="status-dot" />
                 {r.status.replace("_", " ")}
               </span>
             </TableCell>
-            <TableCell>
-              <a
+            <TableCell className="cell-end">
+              <Link
                 aria-label={`Open replay ${r.id.slice(0, 7)}`}
-                href={`${base}/replays/${r.id}`}
+                to={`${base}/replays/${r.id}`}
               >
                 <ArrowUpRight size={15} />
-              </a>
+              </Link>
             </TableCell>
           </TableRow>
         ))}
@@ -104,7 +105,7 @@ export function Overview({
     base = `/app/projects/${data.project?.id}`;
   const severityRank = { pass: 0, info: 1, warning: 2, breaking: 3, critical: 4 };
   const regressions = data.results
-    .filter((r) => ["breaking", "critical", "warning"].includes(r.severity))
+    .filter((r) => !r.acceptedAt && ["breaking", "critical", "warning"].includes(r.severity))
     .sort((a, b) => severityRank[b.severity] - severityRank[a.severity]);
   const metrics = [
     {
@@ -118,7 +119,7 @@ export function Overview({
       label: "Latest pass rate",
       value: latest
         ? `${Math.round((latest.passed / latest.total) * 100)}%`
-        : "—",
+        : "–",
       note: latest
         ? `${latest.passed} of ${latest.total} requests passed`
         : "Run your first replay",
@@ -127,14 +128,14 @@ export function Overview({
     },
     {
       label: "Breaking regressions",
-      value: latest ? String(latest.failed) : "—",
+      value: latest ? String(latest.failed) : "–",
       note: latest?.failed ? "Review before shipping" : "No breaking changes",
       icon: TriangleAlert,
       colour: latest?.failed ? "red" : "",
     },
     {
       label: "Latest run duration",
-      value: latest ? `${(latest.durationMs / 1000).toFixed(2)}` : "—",
+      value: latest ? `${(latest.durationMs / 1000).toFixed(2)}` : "–",
       unit: latest ? "s" : "",
       note: latest?.fixture
         ? "Illustrative sample run"
@@ -168,17 +169,17 @@ export function Overview({
             title="Latest replay"
             meta={
               latest?.fixture
-                ? "Built-in sample · Baseline v1 → Candidate v2"
+                ? "Built-in sample run, Baseline v1 against Candidate v2"
                 : "Your most recent comparison"
             }
             action={
               latest ? (
-                <a
+                <Link
                   className="subtle-link"
-                  href={`${base}/replays/${latest.id}`}
+                  to={`${base}/replays/${latest.id}`}
                 >
                   View run <ArrowUpRight size={14} />
-                </a>
+                </Link>
               ) : undefined
             }
           />
@@ -214,16 +215,16 @@ export function Overview({
                 </span>
                 <span>
                   <i className="legend-dot warnings" />
-                  {latest.warnings} Warning
+                  {latest.warnings} {latest.warnings === 1 ? "Warning" : "Warnings"}
                 </span>
                 <span>
                   <i className="legend-dot failed" />
                   {latest.failed} Breaking
                 </span>
               </div>
-              <div className="case-summary">
-                {data.results.map((r) => (
-                  <a key={r.id} href={`${base}/results/${r.id}`}>
+              <div className="case-summary stagger">
+                {data.results.map((r, i) => (
+                  <Link key={r.id} to={`${base}/results/${r.id}`} style={{ "--i": i } as React.CSSProperties}>
                     <span className={`result-icon ${r.severity}`}>
                       {r.severity === "pass" ? (
                         <CheckCircle2 size={15} />
@@ -237,7 +238,7 @@ export function Overview({
                     </span>
                     <SeverityBadge severity={r.severity} />
                     <ArrowUpRight size={14} className="muted" />
-                  </a>
+                  </Link>
                 ))}
               </div>
               {["queued", "running"].includes(latest.status) && (
@@ -284,7 +285,7 @@ export function Overview({
                         : "muted"
                     }
                   >
-                    {r.target?.latencyMs ?? "—"} ms
+                    {r.target?.latencyMs ?? "–"} ms
                     {r.diff.some(
                       (d) => d.category === "LATENCY_REGRESSION",
                     ) && <TriangleAlert size={12} />}
@@ -346,17 +347,19 @@ export function Overview({
             <GitCompareArrows size={21} />
           </div>
           <div>
-            <h3>Small changes. Real impact.</h3>
+            <h3>
+              {regressions[0].name} needs a review
+            </h3>
             <p>
-              {regressions[0].name} has {regressions[0].diff.length}{" "}
-              {regressions[0].diff.length === 1 ? "difference" : "differences"}.
-              Inspect the diff to see what changed.
+              {regressions[0].diff.length}{" "}
+              {regressions[0].diff.length === 1 ? "difference" : "differences"}{" "}
+              from the baseline. Accept it as the new baseline if the change is intended.
             </p>
           </div>
           <Button variant="outline" asChild>
-            <a href={`${base}/results/${regressions[0].id}`}>
-              Inspect diff <ArrowRight />
-            </a>
+            <Link to={`${base}/results/${regressions[0].id}`}>
+              Review diff <ArrowRight />
+            </Link>
           </Button>
         </section>
       )}
@@ -364,8 +367,8 @@ export function Overview({
         <div className="demo-banner">
           <FlaskConical size={17} />
           <span>
-            <strong>Explore the built-in demo.</strong> A passing request, a
-            schema change, and a slower response.
+            <strong>This project is the built-in demo.</strong> One request
+            passes, one changes its schema, and one gets slower.
           </span>
           <button disabled={busy} onClick={runReplay}>
             Run demo replay <ArrowRight size={14} />

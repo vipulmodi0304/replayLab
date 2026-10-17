@@ -54,7 +54,7 @@ After each meaningful deployment, perform this browser smoke test:
 2. Open the built-in Demo Commerce API project.
 3. Run a demo replay.
 4. Wait for the background run to complete.
-5. Open **Get User** and confirm the JSON diff reports the expected breaking changes.
+5. Open **Get User** and confirm the Changes tab reports the expected breaking changes, then accept it and confirm the next replay passes.
 6. Refresh the browser and confirm the completed run persists.
 7. Confirm **Get Order** shows the configured latency warning.
 8. Confirm **List Products** passes.

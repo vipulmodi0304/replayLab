@@ -14,6 +14,7 @@ model User {
   created_at String
   projects Project[]
   sessions Session[]
+  tokens ApiToken[]
   @@map("users")
 }
 model Session {
@@ -122,6 +123,8 @@ model ReplayResult {
   diff Json @db.JsonB
   severity String
   error String?
+  accepted_at String?
+  accepted_by String?
   run ReplayRun @relation(fields:[run_id],references:[id],onDelete:Cascade)
   explanation Explanation?
   @@unique([run_id,case_id])
@@ -141,4 +144,16 @@ model RateLimit {
   count Int
   reset_at BigInt
   @@map("rate_limits")
+}
+model ApiToken {
+  id String @id
+  user_id String
+  name String
+  token_hash String @unique
+  prefix String
+  created_at String
+  last_used_at String?
+  user User @relation(fields:[user_id],references:[id],onDelete:Cascade)
+  @@index([user_id])
+  @@map("api_tokens")
 }

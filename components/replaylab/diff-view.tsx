@@ -1,55 +1,25 @@
 import { useState } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  ArrowUpRight,
-  Braces,
-  Check,
-  Copy,
-  GitCompareArrows,
-  LoaderCircle,
-  Sparkles,
-  TriangleAlert,
-} from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, CheckCheck, Copy, GitCompareArrows, LoaderCircle, Sparkles, TriangleAlert } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import type { ReplayResult, Workspace, DiffEntry } from "@/packages/core/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Busy,
-  Choice,
-  EmptyState,
-  JsonViewer,
-  Method,
-  SeverityBadge,
-  SnapshotMeta,
-} from "./common";
-function Value({
-  value,
-  missing = false,
-}: {
-  value: unknown;
-  missing?: boolean;
-}) {
-  return (
-    <code className={missing ? "missing-value" : ""}>
-      {value === undefined ? "not present" : JSON.stringify(value)}
-    </code>
-  );
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Busy, Choice, EmptyState, JsonViewer, Method, RelativeDate, SeverityBadge, SnapshotMeta } from "./common";
+import { CodeDiff } from "./code-diff";
+import { ConfirmDialog } from "./forms";
+
+function Value({ value, missing = false }: { value: unknown; missing?: boolean }) {
+  return <code className={missing ? "missing-value" : ""}>{value === undefined ? "not present" : JSON.stringify(value)}</code>;
 }
+
+/** Each structured difference, as one review line. */
 export function DiffTable({ diff }: { diff: DiffEntry[] }) {
   return (
-    <Table className="diff-table">
+    <Table className="diff-table stack">
       <TableHeader>
         <TableRow>
           <TableHead>Path</TableHead>
@@ -59,32 +29,24 @@ export function DiffTable({ diff }: { diff: DiffEntry[] }) {
           <TableHead>Severity</TableHead>
         </TableRow>
       </TableHeader>
-      <TableBody>
+      <TableBody className="stagger">
         {diff.map((d, i) => (
-          <TableRow key={i}>
-            <TableCell>
+          <TableRow key={i} style={{ "--i": i } as React.CSSProperties}>
+            <TableCell className="cell-primary">
               <code className="diff-path">{d.path || "$"}</code>
             </TableCell>
-            <TableCell>
+            <TableCell data-label="Change">
               <span className={`change-label ${d.category.toLowerCase()}`}>
-                {d.category === "REMOVED"
-                  ? "−"
-                  : d.category === "ADDED"
-                    ? "+"
-                    : "↔"}{" "}
-                {d.category.toLowerCase().replaceAll("_", " ")}
+                {d.category === "REMOVED" ? "−" : d.category === "ADDED" ? "+" : "↔"} {d.message}
               </span>
             </TableCell>
-            <TableCell>
-              <Value value={d.baselineValue} />
+            <TableCell data-label="Baseline">
+              <Value value={d.baselineValue} missing={d.baselineValue === undefined} />
             </TableCell>
-            <TableCell>
-              <Value
-                value={d.targetValue}
-                missing={d.targetValue === undefined}
-              />
+            <TableCell data-label="Candidate">
+              <Value value={d.targetValue} missing={d.targetValue === undefined} />
             </TableCell>
-            <TableCell>
+            <TableCell data-label="Severity">
               <SeverityBadge severity={d.severity} />
             </TableCell>
           </TableRow>
@@ -93,84 +55,34 @@ export function DiffTable({ diff }: { diff: DiffEntry[] }) {
     </Table>
   );
 }
-function CodeComparison({ result }: { result: ReplayResult }) {
-  const left = JSON.stringify(result.baseline?.body ?? null, null, 2).split(
-      "\n",
-    ),
-    right = JSON.stringify(result.target?.body ?? null, null, 2).split("\n");
-  return (
-    <div className="code-comparison">
-      {[left, right].map((lines, side) => (
-        <div key={side}>
-          <div className="comparison-title">
-            <span>
-              <span className={`code-dot ${side ? "candidate" : "baseline"}`} />
-              {side ? "Candidate response" : "Baseline response"}
-            </span>
-            <span>
-              {side ? result.target?.status : result.baseline?.status}
-            </span>
-          </div>
-          <div className="numbered-code">
-            {lines.map((line, i) => {
-              const key = line.match(/"([^\"]+)"\s*:/)?.[1];
-              const change =
-                key &&
-                result.diff.some(
-                  (d) => d.path === key || d.path.endsWith("." + key),
-                );
-              return (
-                <div
-                  className={
-                    change ? (side ? "line-added" : "line-removed") : ""
-                  }
-                  key={i}
-                >
-                  <span>{i + 1}</span>
-                  <code>{line || " "}</code>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+
 export function DiffView({ id, data }: { id: string; data: Workspace }) {
-  const query = useQuery({
-    queryKey: ["result", id],
-    queryFn: () => api<ReplayResult>(`/results/${id}`),
-  });
+  const qc = useQueryClient();
+  const query = useQuery({ queryKey: ["result", id], queryFn: () => api<ReplayResult>(`/results/${id}`) });
   const [severity, setSeverity] = useState("all"),
     [explanation, setExplanation] = useState(""),
     [explaining, setExplaining] = useState(false),
-    [copied, setCopied] = useState(false);
+    [copied, setCopied] = useState(false),
+    [confirming, setConfirming] = useState(false);
   if (query.isLoading) return <Busy text="Loading comparison" />;
   if (query.error || !query.data)
-    return (
-      <EmptyState
-        title="Comparison unavailable"
-        description={query.error?.message || "This result could not be loaded."}
-      />
-    );
+    return <EmptyState title="Comparison unavailable" description={query.error?.message || "This result could not be loaded."} />;
   const result = query.data,
     base = `/app/projects/${data.project?.id}`;
-  const filtered = result.diff.filter(
-    (d) => severity === "all" || d.severity === severity,
-  );
+  const filtered = result.diff.filter((d) => severity === "all" || d.severity === severity);
   const metrics = [
     ["Fields added", "ADDED"],
     ["Fields removed", "REMOVED"],
     ["Type changes", "TYPE_CHANGED"],
     ["Value changes", "VALUE_CHANGED"],
   ];
+  const slower = result.diff.some((d) => d.category === "LATENCY_REGRESSION");
+  const canAccept = !!result.target && !result.error && !result.acceptedAt && result.severity !== "pass";
+
   async function explain() {
     setExplaining(true);
     try {
-      const r = await api<{ explanation: string }>(`/results/${id}/explain`, {
-        method: "POST",
-      });
+      const r = await api<{ explanation: string }>(`/results/${id}/explain`, { method: "POST" });
       setExplanation(r.explanation);
     } catch (e) {
       toast.error((e as Error).message);
@@ -178,96 +90,98 @@ export function DiffView({ id, data }: { id: string; data: Workspace }) {
       setExplaining(false);
     }
   }
+
+  async function accept() {
+    await api(`/results/${id}/accept`, { method: "POST", body: {} });
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["result", id] }),
+      qc.invalidateQueries({ queryKey: ["workspace"] }),
+      qc.invalidateQueries({ queryKey: ["run"] }),
+    ]);
+    toast.success("Baseline updated. The next replay compares against this response.");
+  }
+
   return (
     <>
-      <a className="back-link" href={`${base}/replays/${result.runId}`}>
+      <Link className="back-link" to={`${base}/replays/${result.runId}`}>
         <ArrowLeft size={14} /> Back to replay
-      </a>
+      </Link>
       <div className="diff-page-header">
         <div>
-          <div className="eyebrow left">RESPONSE COMPARISON</div>
           <h1>{result.name}</h1>
           <div className="request-line">
             <Method method={result.method} />
             <code>{result.path}</code>
             <span className="divider" />
-            Run #{result.runId.slice(0, 7)}
+            <span>Run #{result.runId.slice(0, 7)}</span>
           </div>
         </div>
-        <SeverityBadge severity={result.severity} />
+        <div>
+          <SeverityBadge severity={result.severity} />
+          {result.acceptedAt ? (
+            <span className="accepted-note">
+              <CheckCheck size={16} />
+              Accepted by {result.acceptedBy}, <RelativeDate date={result.acceptedAt} />
+            </span>
+          ) : canAccept ? (
+            <Button onClick={() => setConfirming(true)}>
+              <Check />
+              Accept as new baseline
+            </Button>
+          ) : null}
+        </div>
       </div>
       <div className="comparison-summary">
         <div>
           <span className="muted">HTTP status</span>
           <strong>
-            {result.baseline?.status ?? "—"} <ArrowRight size={15} />
-            {result.target?.status ?? "—"}{" "}
-            <span className="green">
-              {result.baseline?.status === result.target?.status ? (
-                <Check size={14} />
-              ) : (
-                <TriangleAlert size={14} />
-              )}
-            </span>
+            {result.baseline?.status ?? "–"} <ArrowRight size={14} />
+            <span className={result.baseline?.status === result.target?.status ? "" : "red"}>{result.target?.status ?? "–"}</span>
           </strong>
         </div>
         <div>
           <span className="muted">Response time</span>
           <strong>
-            {result.baseline?.latencyMs ?? "—"} ms <ArrowRight size={15} />
-            <span
-              className={
-                result.diff.some((d) => d.category === "LATENCY_REGRESSION")
-                  ? "amber"
-                  : ""
-              }
-            >
-              {result.target?.latencyMs ?? "—"} ms
-            </span>
+            {result.baseline?.latencyMs ?? "–"} ms <ArrowRight size={14} />
+            <span className={slower ? "amber" : ""}>{result.target?.latencyMs ?? "–"} ms</span>
           </strong>
         </div>
         <div>
           <span className="muted">Differences</span>
-          <strong>
-            {result.diff.length} <span className="muted">detected</span>
-          </strong>
+          <strong>{result.diff.length}</strong>
         </div>
         <div>
-          <span className="muted">Comparison</span>
-          <strong>
-            Baseline <ArrowRight size={15} /> Candidate
+          <span className="muted">Breaking</span>
+          <strong className={result.diff.some((d) => ["breaking", "critical"].includes(d.severity)) ? "red" : ""}>
+            {result.diff.filter((d) => ["breaking", "critical"].includes(d.severity)).length}
           </strong>
         </div>
       </div>
       {result.error && <div className="error-box">{result.error}</div>}
-      <Tabs defaultValue="overview" className="diff-tabs">
+      <Tabs defaultValue="changes" className="diff-tabs">
         <TabsList variant="line">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="changes">
+            Changes <span className="count-pill">{result.diff.length}</span>
+          </TabsTrigger>
           <TabsTrigger value="json">
-            <Braces />
-            JSON diff <span className="count-pill">{result.diff.length}</span>
+            <GitCompareArrows />
+            Response diff
           </TabsTrigger>
           <TabsTrigger value="headers">Headers</TabsTrigger>
           <TabsTrigger value="raw">Raw response</TabsTrigger>
-          <TabsTrigger value="ai">
-            <Sparkles />
-            AI explanation
-          </TabsTrigger>
+          {data.aiEnabled && (
+            <TabsTrigger value="ai">
+              <Sparkles />
+              Explain
+            </TabsTrigger>
+          )}
         </TabsList>
-        <TabsContent value="overview">
+        <TabsContent value="changes">
           <div className="diff-metrics">
             {metrics.map(([label, category]) => (
               <div key={label}>
                 <span>{label}</span>
-                <strong
-                  className={
-                    category === "REMOVED"
-                      ? "red"
-                      : category === "TYPE_CHANGED"
-                        ? "amber"
-                        : ""
-                  }
-                >
+                <strong className={category === "REMOVED" || category === "TYPE_CHANGED" ? (result.diff.some((d) => d.category === category) ? "red" : "") : ""}>
                   {result.diff.filter((d) => d.category === category).length}
                 </strong>
               </div>
@@ -275,70 +189,47 @@ export function DiffView({ id, data }: { id: string; data: Workspace }) {
           </div>
           <section className="panel">
             <div className="panel-heading">
-              <span>
-                <GitCompareArrows size={16} />
-                What changed
-              </span>
+              <span>What changed</span>
               <Choice
                 label="Filter severity"
                 value={severity}
                 onChange={setSeverity}
-                options={["all", "breaking", "warning", "info", "critical"].map(
-                  (s) => ({
-                    value: s,
-                    label:
-                      s === "all"
-                        ? "All severities"
-                        : s[0].toUpperCase() + s.slice(1),
-                  }),
-                )}
+                options={["all", "critical", "breaking", "warning", "info"].map((s) => ({
+                  value: s,
+                  label: s === "all" ? "All severities" : s[0]!.toUpperCase() + s.slice(1),
+                }))}
               />
             </div>
             {filtered.length ? (
               <DiffTable diff={filtered} />
             ) : (
               <EmptyState
-                title={
-                  result.diff.length
-                    ? "No matching differences"
-                    : "Everything matched the baseline"
-                }
-                description={
-                  result.diff.length
-                    ? "Try a different severity filter."
-                    : "No meaningful changes were detected with the current comparison rules."
-                }
+                title={result.diff.length ? "No matching differences" : "Everything matched the baseline"}
+                description={result.diff.length ? "Try a different severity filter." : "No meaningful changes were found with the current comparison rules."}
               />
             )}
           </section>
-          <div className="review-note">
-            <TriangleAlert size={16} />
-            <p>
-              Severity follows your comparison rules. Review consumer impact
-              before approving a new baseline.
-            </p>
-          </div>
+          {!result.acceptedAt && result.severity !== "pass" && (
+            <div className="review-note">
+              <TriangleAlert size={16} />
+              <p>
+                If this change is intended, accept it as the new baseline and future replays will compare against it. If it isn't, fix the candidate
+                and run the replay again.
+              </p>
+            </div>
+          )}
         </TabsContent>
         <TabsContent value="json">
           <section className="panel">
-            <CodeComparison result={result} />
-            <div className="diff-foot">
-              <span className="red">− Baseline values</span>
-              <span className="green">+ Candidate values</span>
-              <span className="muted">Structured differences below</span>
-            </div>
-            <DiffTable
-              diff={result.diff.filter((d) => !d.path.startsWith("$"))}
-            />
+            <CodeDiff before={result.baseline?.body} after={result.target?.body} />
           </section>
         </TabsContent>
         <TabsContent value="headers">
           <section className="panel">
             <div className="panel-heading">
-              Response headers{" "}
-              <span className="muted">Sensitive headers excluded</span>
+              Response headers <span className="muted" style={{ fontWeight: 500, fontSize: 13 }}>Sensitive headers are left out</span>
             </div>
-            <Table>
+            <Table className="stack">
               <TableHeader>
                 <TableRow>
                   <TableHead>Header</TableHead>
@@ -347,20 +238,23 @@ export function DiffView({ id, data }: { id: string; data: Workspace }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[
-                  ...new Set([
-                    ...Object.keys(result.baseline?.headers || {}),
-                    ...Object.keys(result.target?.headers || {}),
-                  ]),
-                ].map((k) => (
-                  <TableRow key={k}>
-                    <TableCell>
-                      <code>{k}</code>
-                    </TableCell>
-                    <TableCell>{result.baseline?.headers[k] || "—"}</TableCell>
-                    <TableCell>{result.target?.headers[k] || "—"}</TableCell>
-                  </TableRow>
-                ))}
+                {[...new Set([...Object.keys(result.baseline?.headers || {}), ...Object.keys(result.target?.headers || {})])].map((k) => {
+                  const a = result.baseline?.headers[k],
+                    b = result.target?.headers[k];
+                  return (
+                    <TableRow key={k}>
+                      <TableCell className="cell-primary">
+                        <code className={a !== b ? "amber" : ""}>{k}</code>
+                      </TableCell>
+                      <TableCell data-label="Baseline" className="mono">
+                        {a || "–"}
+                      </TableCell>
+                      <TableCell data-label="Candidate" className="mono">
+                        {b || "–"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </section>
@@ -374,9 +268,7 @@ export function DiffView({ id, data }: { id: string; data: Workspace }) {
                 size="sm"
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(
-                      JSON.stringify(result.target?.body ?? null, null, 2),
-                    );
+                    await navigator.clipboard.writeText(JSON.stringify(result.target?.body ?? null, null, 2));
                     setCopied(true);
                     toast.success("Response copied");
                   } catch {
@@ -384,56 +276,45 @@ export function DiffView({ id, data }: { id: string; data: Workspace }) {
                   }
                 }}
               >
-                {copied ? <Check /> : <Copy />}Copy JSON
+                {copied ? <Check /> : <Copy />}
+                Copy JSON
               </Button>
             </div>
             {result.target && <SnapshotMeta snapshot={result.target} />}
             <JsonViewer value={result.target?.body} />
           </section>
         </TabsContent>
-        <TabsContent value="ai">
-          <section className="panel ai-panel">
-            <div className="ai-symbol">
-              <Sparkles size={26} />
-            </div>
-            <h2>Context for your comparison.</h2>
-            <p>
-              Optional AI analysis explains an already computed diff. It never
-              decides whether a regression exists or changes your baseline.
-            </p>
-            {data.aiEnabled ? (
-              <>
-                <Button onClick={explain} disabled={explaining}>
-                  {explaining ? (
-                    <LoaderCircle className="animate-spin" />
-                  ) : (
-                    <Sparkles />
-                  )}
-                  Explain this regression
-                </Button>
-                <p className="muted privacy-note">
-                  Only field paths, types, and severity are sent. Response
-                  bodies and headers are excluded.
-                </p>
-                {explanation && (
-                  <div className="ai-output">
-                    <span className="section-kicker">GENERATED ANALYSIS</span>
-                    {explanation}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="ai-disabled">
-                AI is not configured for this workspace. Deterministic
-                comparison is fully available.
-                <a href="/docs">
-                  Configuration guide <ArrowUpRight size={13} />
-                </a>
+        {data.aiEnabled && (
+          <TabsContent value="ai">
+            <section className="panel ai-panel">
+              <div className="ai-symbol">
+                <Sparkles size={22} />
               </div>
-            )}
-          </section>
-        </TabsContent>
+              <h2>A plain-language summary of this diff</h2>
+              <p>The comparison above is computed by fixed rules. This only explains it, and never decides whether something is a regression.</p>
+              <Button onClick={explain} disabled={explaining}>
+                {explaining ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
+                Explain this change
+              </Button>
+              <p className="muted privacy-note">Only field paths, types and severities are sent. Response bodies and headers are not.</p>
+              {explanation && <div className="ai-output">{explanation}</div>}
+              <a className="subtle-link" href="/docs#configuration" style={{ marginTop: 12 }}>
+                How this is configured <ArrowUpRight size={13} />
+              </a>
+            </section>
+          </TabsContent>
+        )}
       </Tabs>
+      {confirming && (
+        <ConfirmDialog
+          title="Accept this response as the new baseline?"
+          description={`Future replays of ${result.name} will compare against this candidate response instead of the current baseline. Past results stay as they are.`}
+          destructive={false}
+          confirmLabel="Accept as new baseline"
+          action={accept}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </>
   );
 }

@@ -1,36 +1,26 @@
 import { test, expect } from "@playwright/test";
-test("sign in, run the commerce replay, and inspect the schema regression", async ({
-  page,
-}) => {
-  test.skip(
-    !process.env.DEMO_PASSWORD,
-    "Set DEMO_PASSWORD for the local seeded account.",
-  );
-  await page.goto("/login");
-  await page.getByLabel("Email", { exact: true }).fill("demo@replaylab.dev");
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill(process.env.DEMO_PASSWORD!);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Demo Commerce API" }),
-  ).toBeVisible();
+
+// Browser smoke test: a new account gets the demo project, the replay catches
+// the schema regression, and accepting it makes the next replay pass.
+test("run the demo replay, review the regression, and accept it", async ({ page }) => {
+  await page.goto("/register");
+  await page.getByLabel("Name", { exact: true }).fill("Smoke Test");
+  await page.getByLabel("Email", { exact: true }).fill(`smoke-${Date.now()}@example.com`);
+  await page.getByLabel("Password", { exact: true }).fill("correct-horse-battery");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Demo Commerce API" })).toBeVisible();
+
   await page.getByRole("button", { name: "Run replay", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Replay complete" }),
-  ).toBeVisible({ timeout: 30000 });
-  await page.getByRole("link", { name: "Get User", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Get User", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("cell", { name: "profile.age", exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("cell", { name: "email", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("tab", { name: /JSON diff/ }).click();
-  await expect(
-    page.getByText("Candidate response", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Replay complete" })).toBeVisible({ timeout: 30000 });
+  await page.getByRole("link", { name: /Get User/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Get User", exact: true })).toBeVisible();
+  await expect(page.getByText("profile.age", { exact: true })).toBeVisible();
+  await expect(page.getByText("email", { exact: true })).toBeVisible();
+
+  await page.getByRole("tab", { name: /Response diff/ }).click();
+  await expect(page.getByText("Response body")).toBeVisible();
+
+  await page.getByRole("button", { name: "Accept as new baseline" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Accept as new baseline" }).click();
+  await expect(page.getByText(/Accepted by Smoke Test/)).toBeVisible();
 });

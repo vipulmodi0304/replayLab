@@ -5,6 +5,8 @@ import Workspace from "../../../components/replaylab/workspace";
 import Auth from "../../../components/replaylab/auth";
 import Home from "./pages/home";
 import Docs from "./pages/docs";
+import "@fontsource-variable/schibsted-grotesk";
+import "@fontsource-variable/jetbrains-mono";
 import "./styles.css";
 function AppRoute() {
   const params = useParams();

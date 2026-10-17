@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -23,6 +24,52 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { Button } from "@/components/ui/button";
+import { Link } from "react-router-dom";
+import { Monitor, Moon, Sun } from "lucide-react";
+import { useTheme } from "@/lib/theme";
+
+/** The ReplayLab mark: a removed line over an added one. */
+export function BrandMark() {
+  return (
+    <span className="brand-mark" aria-hidden>
+      <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeWidth="2.6">
+        <path d="M4 7h7" stroke="#ff6b6b" />
+        <path d="M11 16h10M16 11v10" stroke="#3fb950" />
+      </svg>
+    </span>
+  );
+}
+export function Brand({ to = "/" }: { to?: string }) {
+  return (
+    <Link className="brand" to={to} aria-label="ReplayLab home">
+      <BrandMark />
+      ReplayLab
+    </Link>
+  );
+}
+/** True while the dark theme is applied; follows changes made anywhere. */
+export function useIsDark() {
+  const [dark, setDark] = useState(() => typeof document !== "undefined" && document.documentElement.classList.contains("dark"));
+  useEffect(() => {
+    const el = document.documentElement;
+    const obs = new MutationObserver(() => setDark(el.classList.contains("dark")));
+    obs.observe(el, { attributes: true, attributeFilter: ["class"] });
+    return () => obs.disconnect();
+  }, []);
+  return dark;
+}
+/** Cycles light, dark and the device setting. */
+export function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+  const Icon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
+  const label = theme === "system" ? "Theme: match device" : `Theme: ${theme}`;
+  return (
+    <button type="button" className="theme-toggle" onClick={() => setTheme(next)} aria-label={`${label}. Switch theme`} title={label}>
+      <Icon size={17} />
+    </button>
+  );
+}
 export function SeverityBadge({ severity }: { severity: Severity }) {
   const Icon =
     severity === "pass"
@@ -156,10 +203,10 @@ export function SnapshotMeta({ snapshot }: { snapshot: Snapshot }) {
 export function ViewAll({ href }: { href: string }) {
   return (
     <Button size="sm" variant="ghost" asChild>
-      <a href={href}>
+      <Link to={href}>
         View all
         <ChevronRight size={14} />
-      </a>
+      </Link>
     </Button>
   );
 }
